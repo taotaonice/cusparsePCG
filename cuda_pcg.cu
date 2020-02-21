@@ -1100,7 +1100,7 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
         static int cnts = 0;
         long t1 = clock();
 
-        const float tol = 1e-2f;
+        const float tol = 1e-6f;
         const int max_iter = 500;
         const float floatone = 1.0;
         const float floatzero = 0.0;
