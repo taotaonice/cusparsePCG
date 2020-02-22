@@ -55,7 +55,7 @@ int main(){
     cudaMemcpy(val_dev, val, nz*4, cudaMemcpyHostToDevice);
     cudaMemcpy(cons_dev, cons, m*n*4, cudaMemcpyHostToDevice);
     cudaMemcpy(Y_dev, Y, m*n*4, cudaMemcpyHostToDevice);
-    //cudaMemcpy(X_dev, X, m*n*4, cudaMemcpyHostToDevice);
+    cudaMemcpy(X_dev, X, m*n*4, cudaMemcpyHostToDevice);
 
     pcg->cu_pcg(row_ind_dev, col_ind_dev, val_dev, m*n, m*n, nz, X_dev, Y_dev, cons_dev);
     cudaMemcpy(X, X_dev, m*n*4, cudaMemcpyDeviceToHost);
