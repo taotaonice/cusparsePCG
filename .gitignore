@@ -1,0 +1,7 @@
+build/
+*.un~
+*.swp
+*.mexa64
+*.bin
+knn-matting-master/
+

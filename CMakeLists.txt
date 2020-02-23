@@ -47,6 +47,7 @@ LINK_DIRECTORIES(/usr/local/cuda/lib64)
 
 # CUDA_ADD_EXECUTABLE(${PROJECT_NAME} ${SRC_LIST} ${INC_LIST})
 CUDA_ADD_LIBRARY(cuPCG SHARED cuda_pcg.cu)
+CUDA_ADD_EXECUTABLE(verify_cupcg verify_cupcg.cpp)
 
 target_link_libraries(
     cuPCG
@@ -60,3 +61,8 @@ target_link_libraries(
     cusparse
     gomp
 )
+
+target_link_libraries(
+  verify_cupcg
+  cuPCG
+  )

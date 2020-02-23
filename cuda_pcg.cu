@@ -545,7 +545,7 @@ void CUDA_pcg::pcg(int* cooRowIndexHostPtr, int* cooColIndexHostPtr,
         float* csrValD  = NULL;
         cudaMalloc((void**)&csrValD, sizeof(int) * M);
 
-        float lambda = 100.0f;
+        //float lambda = 100.0f;
         // inital carValD value to lambda * spdiags(all_constraints, 0, n_pick, n_pick)
 
         cuSetCarValD<<<blocks, threads>>>(csrValD, csrValDiagAllCon, 1, M);
@@ -854,10 +854,6 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
 //    L = D - A;
 //*********************************************
 
-//*********************************************
-//*********************************************
-//*********************************************
-//*********************************************
     int threads = 256;
     int blocks = M / threads + ((M % threads) ? 1:0);
 
@@ -987,21 +983,6 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
         ///
         /// ///////////////////////////////////////////
 
-        int* csrRowIndC = NULL;
-        cudaMalloc((void**)&csrRowIndC, sizeof(int) * nnzC);
-
-        cusparseStatus = cusparseXcsr2coo(cusparseHandle,
-                                          csrRowPtrC,
-                                          nnzC,
-                                          M,
-                                          csrRowIndC,
-                                          CUSPARSE_INDEX_BASE_ZERO);
-        if (cusparseStatus != CUSPARSE_STATUS_SUCCESS)
-        {
-            std::cout << "cusparseScsrgeam csrValC failture  !!!" << std::endl;
-            return ;
-        }
-
         // set sum(A, 2) and add lambda * spdiags(all_constraints, 0, n_pick, n_pick)
         float* csrValD  = NULL;
         cudaMalloc((void**)&csrValD, sizeof(int) * M);
@@ -1084,6 +1065,18 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
             std::cout << "cusparseScsrgeam csrValC failture  !!!" << std::endl;
             return ;
         }
+        // for debug
+        /*
+        printf("nnzL: %d\n", nnzL);
+        int cols[nnzL];
+        float vals[nnzL];
+        cudaMemcpy(cols, csrColIndL, nnzL*4, cudaMemcpyDeviceToHost);
+        cudaMemcpy(vals, csrValL, nnzL*4, cudaMemcpyDeviceToHost);
+        for (int i=0;i<nnzL;i++){
+            printf("%d %f\n", cols[i], vals[i]);
+        }
+        */
+        // debug
 //*********************************************
 //*********************************************
 //*********************************************
@@ -1096,21 +1089,18 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
         /*******************************/
         /*******************************/
 
-        static float sum = 0;
-        static int cnts = 0;
-        long t1 = clock();
-
-        const float tol = 1e-2f;
-        const int max_iter = 500;
+        const float tol = 1e-6f;
+        const int max_iter = 1000;
         const float floatone = 1.0;
         const float floatzero = 0.0;
+        const float floatnone = -1.0;
 
         float* d_x = NULL;
         float* d_r = NULL;
         float* d_p = NULL;
         float* d_omega = NULL;
 
-        float r0, r1, alpha, beta;;
+        float r0, r1, alpha;
         int k;
         float dot, nalpha;
 
@@ -1119,51 +1109,62 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
         cudaError_t(cudaMalloc((void **)&d_p, N*sizeof(float)));
         cudaError_t(cudaMalloc((void **)&d_omega, N*sizeof(float)));
 
-        cudaError_t(cudaMemcpy(d_x, x, N*sizeof(float), cudaMemcpyHostToDevice));
+        cudaError_t(cudaMemcpy(d_x, x, N*sizeof(float), cudaMemcpyDeviceToDevice));
 //        cudaError_t(cudaMemcpy(d_r, rhs, N*sizeof(float), cudaMemcpyHostToDevice));
 
+
+        double st = cv::getTickCount();
         cudaError_t(cudaMemcpy(d_r, rhs, N*sizeof(float), cudaMemcpyDeviceToDevice));
 
+        // omega = A*X
+        cusparseScsrmv(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, nnzL, &floatone,
+                       descrL, csrValL, csrRowPtrL, csrColIndL, d_x, &floatzero, d_omega);
+        // r = b - omega
+        cublasSaxpy(cublasHandle, N, &floatnone, d_omega, 1, d_r, 1);
+        // p = r
+        cublasScopy(cublasHandle, N, d_r, 1, d_p, 1);
+        // r0 = r' * r
+        cublasSdot(cublasHandle, N, d_r, 1, d_r, 1, &r0);
 
         k = 0;
-        r0 = 0;
-        cublasSdot(cublasHandle, N, d_r, 1, d_r, 1, &r1);
 
-        while (r1 > tol*tol && k <= max_iter)
+        while (k <= max_iter)
         {
             k++;
-            if (k == 1)
-            {
-                cublasScopy(cublasHandle, N, d_r, 1, d_p, 1);
-            }
-            else
-            {
-                beta = r1/r0;
-                cublasSscal(cublasHandle, N, &beta, d_p, 1);
-                cublasSaxpy(cublasHandle, N, &floatone, d_r, 1, d_p, 1) ;
-            }
 
+            // Ap = A*p
             cusparseScsrmv(cusparseHandle,CUSPARSE_OPERATION_NON_TRANSPOSE, N, N, nnzL, &floatone,
                            descrL, csrValL, csrRowPtrL, csrColIndL, d_p, &floatzero, d_omega);
 
+            // dot = p' * Ap
             cublasSdot(cublasHandle, N, d_p, 1, d_omega, 1, &dot);
-            alpha = r1/dot;
+            alpha = r0 / dot;
+            // x = x + alpha * p
             cublasSaxpy(cublasHandle, N, &alpha, d_p, 1, d_x, 1);
             nalpha = -alpha;
+            // r = r - alpha * Ap
             cublasSaxpy(cublasHandle, N, &nalpha, d_omega, 1, d_r, 1);
-            r0 = r1;
+            // r1 = r' * r
             cublasSdot(cublasHandle, N, d_r, 1, d_r, 1, &r1);
+            if (r1 < tol*tol) break;
+            // printf("r1: %f\n", r1);
+            // p = r + (r1 / r0)*p
+            cublasScopy(cublasHandle, N, d_r, 1, d_omega, 1);
+            alpha = (r1 / r0);
+            cublasSaxpy(cublasHandle, N, &alpha, d_p, 1, d_omega, 1);
+            cublasScopy(cublasHandle, N, d_omega, 1, d_p, 1);
+            r0 = r1;
         }
+        printf("residual: %.15f\n", r1);
+        printf("k: %d\n", k);
 
 //        printf("  iteration = %3d, residual = %e \n", k, sqrt(r1));
 //        std::cout << "get x time = " << tg.GetCounter() << " ms" << std::endl;
 
-        cudaError_t(cudaMemcpy(x, d_x, N*sizeof(float), cudaMemcpyDeviceToHost));
+        cudaError_t(cudaMemcpy(x, d_x, N*sizeof(float), cudaMemcpyDeviceToDevice));
+        st = cv::getTickCount() - st;
+        printf("time: %lf\n", st / cv::getTickFrequency());
 
-        long t2 = clock();
-        cnts++;
-        sum += (t2-t1)*1000.0/CLOCKS_PER_SEC;
-        std::cout<<cnts<<" times  ave_time: "<< sum/cnts<<" ms"<<std::endl;
 
         ///////////////////////////////////////////////////////////////////////////////////
         cudaFree(sortedRowIndAT);
@@ -1175,7 +1176,6 @@ void CUDA_pcg::cu_pcg(int* sortedRowIndA, int* sortedColIndA,
         cudaFree(csrRowPtrC);
         cudaFree(csrValC);
         cudaFree(csrColIndC);
-        cudaFree(csrRowIndC);
         cudaFree(csrValD);
         cudaFree(csrRowPtrD);
         cudaFree(csrColIndD);

@@ -2,12 +2,13 @@
  * File Type:     C/C++
  * Author:        Hutao {hutaonice@gmail.com}
  * Creation:      星期四 20/02/2020 23:10.
- * Last Revision: 星期四 20/02/2020 23:10.
+ * Last Revision: 星期五 21/02/2020 00:30.
  */
 
 #include <iostream>
-#include "MxArray.h"
+#include <opencv2/opencv.hpp>
 #include "cuda_pcg.h"
+#include "MxArray.hpp"
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -21,10 +22,18 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     int N = rhs[4].toInt();
     int nz = rhs[5].toInt();
     cv::Mat x(rhs[6].toMat());
-    cv::Mat rhs(rhs[7].toMat());
+    cv::Mat rh(rhs[7].toMat());
     cv::Mat diag(rhs[8].toMat());
 
-    pcg->cu_pcg(rowind.data, colind.data, val.data, M, N, nz, x.data, rhs.data, diag.data);
+    pcg->cu_pcg(
+            (int*)rowind.data,
+            (int*)colind.data,
+            (float*)val.data,
+            M, N, nz,
+            (float*)x.data,
+            (float*)rh.data,
+            (float*)diag.data
+            );
 
     plhs[0] = MxArray(x);
     delete pcg;
