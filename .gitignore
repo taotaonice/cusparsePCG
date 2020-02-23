@@ -4,4 +4,4 @@ build/
 *.mexa64
 *.bin
 knn-matting-master/
-
+*.m~
